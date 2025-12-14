@@ -2,24 +2,43 @@
 #include <TFT_eSPI.h>
 #include <ui.h>
 #include <Adafruit_ADS1X15.h>
+
+/////////////////////////////////////////////////////////////////////////////////////
 Adafruit_ADS1115 ads;
-
-
-static const uint16_t screenWidth  = 480;
-static const uint16_t screenHeight = 320;
+static const uint16_t screenWidth  = 480; static const uint16_t screenHeight = 320;
 enum { SCREENBUFFER_SIZE_PIXELS = screenWidth * screenHeight / 10 };
-
 static lv_color_t buf [SCREENBUFFER_SIZE_PIXELS];
 TFT_eSPI tft = TFT_eSPI( screenWidth, screenHeight );
 
-int fahrstufe;
-int druckVA;
-int druckHA;
-int wunschdruckVA;
-int wunschdruckHA;
-int druckvaok = 0;
-int druckhaok = 0;
 
+// C O N F I G //////////////////////////////////////////////////////////////////////
+// Fahrstufe bei Start
+int fahrstufe = 1;
+// Mindestdruck TANK bei Start
+int wunschdruckTANKstartup = 70;
+// Wunschdruck TANK 
+int wunschdruckTANK = 115;
+int wunschdruckTANKmin = 80;
+// Fahrstufe 0
+int wunschdruckVA0 = 0;
+int wunschdruckHA0 = 0;
+// Fahrstufe 1
+int wunschdruckVA1 = 25;
+int wunschdruckHA1 = 30;
+// Fahrstufe 2
+int wunschdruckVA2 = 45;
+int wunschdruckHA2 = 55;
+// Fahrstufe 3
+int wunschdruckVA3 = 65;
+int wunschdruckHA3 = 65;
+// Fahrstufe 4
+int wunschdruckVA4 = 100;
+int wunschdruckHA4 = 100;
+/////////////////////////////////////////////////////////////////////////////////////
+int startup; int zuendung; int druckTANK; int druckVA; int druckHA; int wunschdruckVA; int wunschdruckHA; int drucktankok; int druckvaok; int druckhaok; int16_t adc0, adc1, adc2;
+
+
+//////////////////////////////// MY DISPLAY FLUSH /////////////////////////////////////////////////////
 void my_disp_flush (lv_display_t *disp, const lv_area_t *area, uint8_t *pixelmap)
 {
     uint32_t w = ( area->x2 - area->x1 + 1 );
@@ -34,7 +53,7 @@ void my_disp_flush (lv_display_t *disp, const lv_area_t *area, uint8_t *pixelmap
     tft.endWrite();
     lv_disp_flush_ready( disp );
 }
-
+//////////////////////////////// MY TOUCHPAD READ /////////////////////////////////////////////////////
 void my_touchpad_read(lv_indev_t* indev_driver, lv_indev_data_t* data) 
 {
     uint16_t touchX = 0, touchY = 0;
@@ -51,91 +70,150 @@ void my_touchpad_read(lv_indev_t* indev_driver, lv_indev_data_t* data)
 }
 static uint32_t my_tick_get_cb (void) { return millis(); }
 
+///////////////////////// S E T U P ////////////////////////////////////////////////
 void setup ()
 {
-    pinMode(2, OUTPUT);
+ads.setGain(GAIN_TWOTHIRDS); 
+pinMode(2, OUTPUT);
 pinMode(4, OUTPUT);
-    pinMode(5, OUTPUT);
+pinMode(5, OUTPUT);
 pinMode(18, OUTPUT);
+pinMode(19, OUTPUT);
+pinMode(34, INPUT);
 digitalWrite(2, LOW);
 digitalWrite(4, LOW);
 digitalWrite(5, LOW);
 digitalWrite(18, LOW);
+digitalWrite(19, LOW);
+zuendung = digitalRead(34);
+startup = 1;
 
-      uint16_t calData[5] = { 287, 3587, 315, 3322, 1 };
-  tft.setTouch(calData);
-    Serial.begin( 115200 );
-  tft.init();
-  tft.setRotation(3);
-    lv_init();
-    static lv_disp_t* disp;
-    disp = lv_display_create( screenWidth, screenHeight );
-    lv_display_set_buffers( disp, buf, NULL, SCREENBUFFER_SIZE_PIXELS * sizeof(lv_color_t), LV_DISPLAY_RENDER_MODE_PARTIAL );
-    lv_display_set_flush_cb( disp, my_disp_flush );
-    static lv_indev_t* indev;
-    indev = lv_indev_create();
-    lv_indev_set_type( indev, LV_INDEV_TYPE_POINTER );
-    lv_indev_set_read_cb( indev, my_touchpad_read );
-    lv_tick_set_cb( my_tick_get_cb );
-    ui_init();
+uint16_t calData[5] = { 287, 3587, 315, 3322, 1 };
+tft.setTouch(calData);
+Serial.begin( 115200 );
+tft.init();
+tft.setRotation(3);
+lv_init();
+static lv_disp_t* disp;
+disp = lv_display_create( screenWidth, screenHeight );
+lv_display_set_buffers( disp, buf, NULL, SCREENBUFFER_SIZE_PIXELS * sizeof(lv_color_t), LV_DISPLAY_RENDER_MODE_PARTIAL );
+ lv_display_set_flush_cb( disp, my_disp_flush );
+static lv_indev_t* indev;
+indev = lv_indev_create();
+lv_indev_set_type( indev, LV_INDEV_TYPE_POINTER );
+lv_indev_set_read_cb( indev, my_touchpad_read );
+lv_tick_set_cb( my_tick_get_cb );
+ui_init();
 
-      if (!ads.begin())
-  {
-    Serial.println("Failed to initialize ADS.");
-    while (1);
-  }
+
+if (!ads.begin())
+{
+Serial.println("Failed to initialize ADS.");
+while (1);
 }
 
-void loop ()
-{
-int16_t adc0, adc1;
+////////// FAHRSTUFEN INIT //////////////////////////
+if (fahrstufe == 0) 
+{wunschdruckVA = wunschdruckVA0;
+wunschdruckHA = wunschdruckHA0;} 
+else if (fahrstufe == 1) 
+{wunschdruckVA = wunschdruckVA1;
+wunschdruckHA = wunschdruckHA1;}
+else if (fahrstufe == 2) 
+{wunschdruckVA = wunschdruckVA2;
+wunschdruckHA = wunschdruckHA2;}
+else if (fahrstufe == 3) 
+{wunschdruckVA = wunschdruckVA3;
+wunschdruckHA = wunschdruckHA3;}
+else if (fahrstufe == 4) 
+{wunschdruckVA = wunschdruckVA4;
+wunschdruckHA = wunschdruckHA4;}
+druckvaok = 0;
+druckhaok = 0;
+drucktankok = 0;
+
+
+uint64_t mask = ((uint64_t)1) << 34;
+esp_sleep_enable_ext1_wakeup(mask, ESP_EXT1_WAKEUP_ANY_HIGH);
+}
+
+
+/////////////////////// L O O P //////////////////////////////////////////////////
+void loop (){   
+float druckTANKreal = druckTANK/10.0; 
+float druckVAreal = druckVA/10.0; 
+float druckHAreal = druckHA/10.0; 
+float wunschdruckTANKreal = wunschdruckTANK/10.0; 
+float wunschdruckVAreal = wunschdruckVA/10.0; 
+float wunschdruckHAreal = wunschdruckHA/10.0; 
+
+// SENSOR INIT & MAPPING
 adc0 = ads.readADC_SingleEnded(0);
 adc1 = ads.readADC_SingleEnded(1);
-float druckVAreal = druckVA / 10.0;
-float druckHAreal = druckHA / 10.0;
-float wunschdruckVAreal = wunschdruckVA / 10.0;
-float wunschdruckHAreal = wunschdruckHA / 10.0;
-druckVA = map(adc0, 0, 17500, 0, 150);
-druckHA = map(adc1, 0, 17500, 0, 150);
-if (druckvaok == 0) {
-if (wunschdruckVA > druckVA) {
-      digitalWrite(2, HIGH);
-    } else {
-digitalWrite(2, LOW);
+adc2 = ads.readADC_SingleEnded(2);
+druckTANK = map(adc0, 0, 26656, 0, 150);
+druckVA = map(adc1, 0, 26656, 0, 103);
+druckHA = map(adc2, 0, 26656, 0, 100);
+
+///// STARTUP TANK ///////////
+if (startup = 1) { if (druckTANK >= wunschdruckTANKstartup) {startup = 0; } }
+
+// TANKSTEUERUNG
+if  (druckTANK > wunschdruckTANK) 
+    {drucktankok = 1;} 
+if  (druckTANK < wunschdruckTANKmin) 
+    {drucktankok = 0;}
+if  (drucktankok == 0) 
+    {digitalWrite(5, HIGH);} 
+else 
+    {digitalWrite(5, LOW);} 
+
+if  (druckTANK == wunschdruckTANK) 
+    {drucktankok = 1;} 
+
+// VA & HA STEUERUNG
+if (startup ==0){
+    if  (druckvaok == 0) 
+    {   if  (wunschdruckVA > druckVA) 
+            {digitalWrite(2, HIGH);} 
+            else 
+               {digitalWrite(2, LOW);}
+
+        if  (wunschdruckVA < druckVA) 
+            {digitalWrite(4, HIGH);} 
+            else 
+                {digitalWrite(4, LOW);}
     }
-if (wunschdruckVA < druckVA) {
-      digitalWrite(4, HIGH);
-    } else {
-digitalWrite(4, LOW);
-    }
+    if  (wunschdruckVA == druckVA) 
+        {druckvaok = 1;} 
+
+    if  (druckhaok == 0) 
+    {   if  (wunschdruckHA > druckHA) 
+            {digitalWrite(18, HIGH);} 
+            else    
+                {digitalWrite(18, LOW);}
+
+        if  (wunschdruckHA < druckHA) 
+            {digitalWrite(19, HIGH);} 
+            else 
+                {digitalWrite(19, LOW);}}
+    if  (wunschdruckHA == druckHA) 
+        {druckhaok = 1;}
+   
 }
-if (wunschdruckVA == druckVA) {
-      druckvaok = 1;}
-      
-if (druckhaok == 0) {
-if (wunschdruckHA > druckHA) {
-      digitalWrite(18, HIGH);
-    } else {
-digitalWrite(18, LOW);
-    }
-if (wunschdruckHA < druckHA) {
-      digitalWrite(5, HIGH);
-    } else {
-digitalWrite(5, LOW);
-    }
-}
-if (wunschdruckHA == druckHA) {
-      druckhaok = 1;}
-lv_label_set_text_fmt(ui_LABELaktuellerdruckVA, "%.1f", druckVAreal ); 
+zuendung = digitalRead(34);
+if (zuendung == LOW){esp_deep_sleep_start();}
+lv_label_set_text_fmt(ui_LABELaktuellerdruckVA, "%.1f", druckVAreal); 
+lv_label_set_text_fmt(ui_LABELtankdruck, "%.1f", druckTANKreal); 
 lv_arc_set_value(ui_ARCva, druckVA);
 lv_label_set_text_fmt(ui_LABELaktuellerdruckHA, "%.1f", druckHAreal );
 lv_arc_set_value(ui_ARCha, druckHA);
 lv_label_set_text_fmt(ui_LABELwunschdruckVA, "%.1f", wunschdruckVAreal);
+lv_label_set_text_fmt(ui_LABELwunschdruckTANK, "%.1f", wunschdruckTANKreal);
 lv_label_set_text_fmt(ui_LABELfahrstufe, "%d", fahrstufe);
 lv_label_set_text_fmt(ui_LABELwunschdruckHA, "%.1f", wunschdruckHAreal);
 lv_arc_set_value(ui_ARCvawunsch, wunschdruckVA);
 lv_arc_set_value(ui_ARChawunsch, wunschdruckHA);
-   
-    lv_timer_handler();
-    delay(5);
+lv_timer_handler();
+delay(5);
 }
